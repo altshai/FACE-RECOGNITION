@@ -1,49 +1,76 @@
+import streamlit as st
 import cv2
 import numpy as np
-import pandas as pd
-import mediapipe as mp
-import streamlit as st
+import face_recognition
+import os
 from datetime import datetime
 
-# Initialize MediaPipe Face Detection
-mp_face_detection = mp.solutions.face_detection
-mp_drawing = mp.solutions.drawing_utils
-face_detection = mp_face_detection.FaceDetection(min_detection_confidence=0.5)
+# Title
+st.title("🔥 Face Recognition Attendance System")
 
-# Function to detect faces and mark attendance
-def detect_faces(image):
-    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    results = face_detection.process(rgb_image)
-
-    if results.detections:
-        for detection in results.detections:
-            bboxC = detection.location_data.relative_bounding_box
-            ih, iw, _ = image.shape
-            x, y, w, h = (int(bboxC.xmin * iw), int(bboxC.ymin * ih),
-                          int(bboxC.width * iw), int(bboxC.height * ih))
-
-            # Draw bounding box around detected face
-            cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
-
-            # Simulated face recognition (assign "Unknown")
-            name = "Unknown"
-
-            # Display name
-            cv2.putText(image, name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-
-    return image
-
-# Streamlit App
-st.title("Face Recognition Attendance System (MediaPipe)")
-
-# Upload Image for Face Detection
+# Upload Image for Registration
+st.subheader("📸 Register a New Student")
 uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "png", "jpeg"])
+
 if uploaded_file is not None:
     file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
     image = cv2.imdecode(file_bytes, 1)
+    
+    # Save the Image
+    student_name = st.text_input("Enter Student Name:")
+    if st.button("Save Image"):
+        if student_name:
+            file_path = f"images/{student_name}.jpg"
+            cv2.imwrite(file_path, image)
+            st.success(f"✅ {student_name} has been registered!")
+        else:
+            st.warning("⚠ Please enter a name!")
 
-    # Process image
-    processed_image = detect_faces(image)
+# Face Recognition System
+st.subheader("🎥 Start Face Recognition")
 
-    # Show result
-    st.image(processed_image, channels="BGR")
+if st.button("Start Webcam"):
+    cap = cv2.VideoCapture(0)
+
+    # Load all known images
+    path = "images"
+    images = []
+    classNames = []
+    for cl in os.listdir(path):
+        curImg = cv2.imread(f"{path}/{cl}")
+        images.append(curImg)
+        classNames.append(os.path.splitext(cl)[0])
+
+    # Encode Faces
+    def findEncodings(images):
+        encodeList = []
+        for img in images:
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            encode = face_recognition.face_encodings(img)[0]
+            encodeList.append(encode)
+        return encodeList
+
+    encodeListKnown = findEncodings(images)
+
+    while True:
+        success, img = cap.read()
+        imgS = cv2.resize(img, (0, 0), None, 0.25, 0.25)
+        imgS = cv2.cvtColor(imgS, cv2.COLOR_BGR2RGB)
+
+        facesCurFrame = face_recognition.face_locations(imgS)
+        encodesCurFrame = face_recognition.face_encodings(imgS, facesCurFrame)
+
+        for encodeFace, faceLoc in zip(encodesCurFrame, facesCurFrame):
+            matches = face_recognition.compare_faces(encodeListKnown, encodeFace)
+            faceDis = face_recognition.face_distance(encodeListKnown, encodeFace)
+            matchIndex = np.argmin(faceDis)
+
+            if matches[matchIndex]:
+                name = classNames[matchIndex].upper()
+                st.write(f"✅ {name} Recognized")
+        
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
